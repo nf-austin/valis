@@ -21,7 +21,11 @@ process RUN_VALIS {
     output:
     tuple val(set_id), path("registered/*"),                            emit: registered
     tuple val(set_id), path("${set_id}_registration_error.csv"),        emit: error_csv
-    tuple val(set_id), path("overlaps"),                                emit: qc,        optional: true
+    // The PNGs, not the directory: every set's QC dir is named "overlaps", so
+    // collecting directories for the report would collide. VALIS already
+    // prefixes each file with the set name, and publishDir keeps the prefix.
+    tuple val(set_id), path("overlaps/*"),                              emit: qc,        optional: true
+    tuple val(set_id), path("${set_id}_summary.json"),                  emit: summary
     tuple val(set_id), path("${set_id}_merged.ome.tiff"),               emit: merged,    optional: true
     tuple val(set_id), path("${set_id}_registrar.pickle"),              emit: registrar, optional: true
 
@@ -62,5 +66,41 @@ process RUN_VALIS {
         --max-non-rigid-registration-dim-px ${params.max_non_rigid_registration_dim_px} \\
         --micro-max-dim-px ${params.micro_max_dim_px} \\
         ${compression_arg}
+    """
+
+    // Lets `nextflow run ... -stub-run` exercise channel wiring, fan-out and the
+    // summary report without pulling the multi-GB image or running registration.
+    stub:
+    def stub_names = (names instanceof List ? names : [names])
+    def stub_json = groovy.json.JsonOutput.toJson([
+        set_id: set_id,
+        reference: stub_names[0],
+        images: stub_names,
+        n_images: stub_names.size(),
+        reflections: [:],
+        merged: true,
+        settings: [
+            crop: params.crop,
+            check_for_reflections: params.check_for_reflections,
+            create_masks: params.create_masks,
+            micro_reg: params.micro_reg,
+            non_rigid_registrar: params.non_rigid_registrar,
+            max_processed_image_dim_px: params.max_processed_image_dim_px,
+            max_non_rigid_registration_dim_px: params.max_non_rigid_registration_dim_px,
+            micro_max_dim_px: params.micro_max_dim_px,
+        ],
+        metrics: [],
+    ])
+    """
+    mkdir -p registered overlaps
+    for n in ${stub_names.collect { n -> "'${n}'" }.join(' ')}; do
+        touch "registered/\${n%%.*}.ome.tiff"
+    done
+    for stage in original_overlap rigid_overlap non_rigid_overlap micro_reg; do
+        touch "overlaps/${set_id}_\${stage}.png"
+    done
+    echo 'filename,from,to,original_D,rigid_D,non_rigid_D' > ${set_id}_registration_error.csv
+    touch ${set_id}_merged.ome.tiff ${set_id}_registrar.pickle
+    echo '${stub_json}' > ${set_id}_summary.json
     """
 }

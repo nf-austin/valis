@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/nf-austin/valis/main/assets/schema_input.json",
+  "title": "nf-austin/valis samplesheet",
+  "description": "Images to register, in order. Rows sharing a `set` are registered together and the first row of each set is the reference.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "set": {
+        "type": "string",
+        "pattern": "^\\S+$",
+        "errorMessage": "Set name must not contain spaces",
+        "meta": ["set"],
+        "description": "Name grouping images into one registration set. Optional; omit for a single set."
+      },
+      "image": {
+        "type": "string",
+        "format": "file-path",
+        "exists": true,
+        "pattern": "^\\S+$",
+        "errorMessage": "Image path must be provided and must not contain spaces",
+        "description": "Path to a slide image. Any format VALIS can read (Bio-Formats, OpenSlide, scikit-image)."
+      }
+    },
+    "required": ["image"]
+  }
+}

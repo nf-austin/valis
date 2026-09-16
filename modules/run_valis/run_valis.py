@@ -11,6 +11,7 @@ warped into its coordinate frame at full resolution.
 """
 import argparse
 import inspect
+import json
 import os
 import shutil
 import sys
@@ -163,6 +164,67 @@ def build_channel_name_dict(registrar):
         return None
 
 
+def detect_reflections(registrar):
+    """Which slides had a reflection applied, inferred from their transform.
+
+    A similarity transform with a negative determinant contains a reflection.
+    Best effort: VALIS only reports reflections as a printed warning, and the
+    attribute layout is not part of its documented API.
+    """
+    flagged = {}
+    try:
+        import numpy as np
+        for src_f in registrar.original_img_list:
+            slide_obj = registrar.get_slide(src_f)
+            M = getattr(slide_obj, "M", None)
+            if M is None:
+                continue
+            flagged[strip_prefix(slide_obj.name)] = bool(np.linalg.det(M[:2, :2]) < 0)
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARNING: could not determine reflections ({exc})",
+              file=sys.stderr, flush=True)
+    return flagged
+
+
+def write_summary(path, args, staged, registrar, error_df, micro_reg, merged):
+    """Machine-readable per-set summary, consumed by SUMMARY_REPORT."""
+    keep = ["from", "to", "original_D", "rigid_D", "non_rigid_D",
+            "original_rTRE", "rigid_rTRE", "non_rigid_rTRE"]
+    metrics = []
+    try:
+        for row in error_df.to_dict(orient="records"):
+            if not row.get("to"):
+                continue  # the reference's own row carries no pairwise error
+            entry = {k: row.get(k) for k in keep if k in row}
+            entry["slide"] = strip_prefix(str(row.get("from", "")))
+            metrics.append(entry)
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARNING: could not serialise error metrics ({exc})",
+              file=sys.stderr, flush=True)
+
+    summary = {
+        "set_id": args.set_id,
+        "reference": strip_prefix(staged[0].name),
+        "images": [strip_prefix(p.name) for p in staged],
+        "n_images": len(staged),
+        "reflections": detect_reflections(registrar),
+        "merged": merged,
+        "settings": {
+            "crop": args.crop,
+            "check_for_reflections": as_bool(args.check_for_reflections),
+            "create_masks": as_bool(args.create_masks),
+            "micro_reg": micro_reg,
+            "non_rigid_registrar": args.non_rigid_registrar,
+            "max_processed_image_dim_px": args.max_processed_image_dim_px,
+            "max_non_rigid_registration_dim_px": args.max_non_rigid_registration_dim_px,
+            "micro_max_dim_px": args.micro_max_dim_px,
+        },
+        "metrics": metrics,
+    }
+    Path(path).write_text(json.dumps(summary, indent=2, default=str))
+    print(f"Wrote {path}", flush=True)
+
+
 def rename_outputs(registered_dir):
     """Strip NN_ prefixes from the warped slides so names match the inputs."""
     for path in sorted(registered_dir.iterdir()):
@@ -279,6 +341,7 @@ def main(argv=None):
         # and must be correctly named even if the optional merge fails.
         rename_outputs(registered_dir)
 
+        merged_ok = False
         if merge:
             channel_names = build_channel_name_dict(registrar)
             if channel_names is None:
@@ -297,6 +360,7 @@ def main(argv=None):
                         pyramid=True,
                         **warp_kwargs,
                     )
+                    merged_ok = merged_f.exists()
                 except Exception as exc:  # noqa: BLE001
                     # The registered slides already exist and are the point of
                     # the run; losing them to a failed convenience output would
@@ -316,6 +380,9 @@ def main(argv=None):
         overlaps_src = dst_dir / args.set_id / "overlaps"
         if overlaps_src.is_dir():
             shutil.copytree(overlaps_src, Path("overlaps").resolve(), dirs_exist_ok=True)
+
+        write_summary(Path(f"{args.set_id}_summary.json").resolve(),
+                      args, staged, registrar, error_df, micro_reg, merged_ok)
 
         print("VALIS registration complete", flush=True)
 

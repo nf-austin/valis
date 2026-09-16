@@ -1,0 +1,12 @@
+# Files surfaced in the Seqera Platform "Reports" tab after a run.
+reports:
+  summary_report.html:
+    display: "VALIS registration summary -- alignment metrics and before/after overlays"
+  registration_qc.csv:
+    display: "Registration QC metrics for every slide, across all sets"
+  "**/*_registration_error.csv":
+    display: "Per-set registration error (raw VALIS output)"
+  "pipeline_info/execution_report.html":
+    display: "Nextflow execution report (resources, timings, task status)"
+  "pipeline_info/execution_timeline.html":
+    display: "Nextflow execution timeline"

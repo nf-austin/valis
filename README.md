@@ -17,6 +17,9 @@ landmarks, and runs on CPU by default with an optional GPU path.
    - non-rigid registration, plus an optional higher-resolution micro-registration pass,
    - full-resolution warping of every slide into the reference's frame,
    - an optional merged multi-channel OME-TIFF, a registration-error CSV, and QC overlap thumbnails.
+2. **SUMMARY_REPORT** (`summary_report`) — aggregates every set into one self-contained
+   `summary_report.html` (metrics table plus before/after overlays, embedded) and a flat
+   `registration_qc.csv`. Runs once per pipeline run, after all sets finish.
 
 ## Requirements
 
@@ -28,14 +31,41 @@ landmarks, and runs on CPU by default with an optional GPU path.
 
 ## Usage
 
+### Samplesheet (recommended, and what Seqera Platform launches with)
+
+```bash
+nextflow run nf-austin/valis \
+    -profile docker \
+    --input samplesheet.csv \
+    --outdir results
+```
+
+`samplesheet.csv` has two columns, `set` (optional) and `image`:
+
+```csv
+set,image
+case01,/data/case01/HE.svs
+case01,/data/case01/IF_round1.ome.tiff
+case01,/data/case01/IF_round2.ome.tiff
+case02,/data/case02/HE.svs
+case02,/data/case02/IF_round1.ome.tiff
+```
+
+Rows sharing a `set` are registered together **in row order**, and the **first row of each set is
+the reference** every other image is warped onto. Sets run in parallel, each publishing to
+`results/<set>/`. Omit the `set` column to treat the whole sheet as a single set. An example lives
+at [`assets/samplesheet_example.csv`](assets/samplesheet_example.csv).
+
+### Ad-hoc single set
+
 ```bash
 nextflow run nf-austin/valis \
     -profile docker \
     --images "reference.svs,round1.ome.tiff,round2.ome.tiff"
 ```
 
-The **first** entry in `--images` is the reference. Every other image is warped into its coordinate
-frame, so outputs stack pixel-for-pixel onto the reference.
+The **first** entry is the reference. Convenient from a terminal; prefer `--input` on Seqera
+Platform, where a samplesheet gets a file browser rather than a text box.
 
 With a GPU:
 
@@ -64,8 +94,9 @@ Faster, more precise, or cheaper variants:
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `--images` | *(required)* | Comma-separated, ordered list of 2+ image paths. The first is the reference. |
-| `--name` | reference basename | Name for this registration set; used for the output subdirectory. |
+| `--input` | *(one of these two)* | Samplesheet CSV with `set` (optional) and `image` columns. |
+| `--images` | *(one of these two)* | Ad-hoc comma-separated, ordered list of 2+ image paths. The first is the reference. |
+| `--name` | reference basename | Set name, used for the output subdirectory. Applies to `--images`, or as the fallback for a sheet with no `set` column. |
 | `--outdir` | `results` | Output directory. |
 | `--use_gpu` | `false` | Use the CUDA image, request an accelerator, and switch to a GPU-capable non-rigid registrar. |
 | `--crop` | `reference` | `reference` (outputs match the reference's frame and dimensions), `overlap` (common region only), or `all` (union extent). |
@@ -89,18 +120,42 @@ Faster, more precise, or cheaper variants:
 
 ```text
 results/
-└── <name>/
-    ├── registered/                       # Full-resolution warped slides, in the
-    │   ├── reference.ome.tiff            #   reference's coordinate frame. Input
-    │   ├── round1.ome.tiff               #   filenames are preserved.
-    │   └── round2.ome.tiff
-    ├── overlaps/                         # Low-res QC thumbnails (before/after)
-    ├── <name>_registration_error.csv     # Per-slide error: original / rigid /
-    │                                     #   non-rigid D and rTRE
-    ├── <name>_merged.ome.tiff            # Merged multi-channel stack (--merge)
-    └── <name>_registrar.pickle           # Pickled registrar; re-apply transforms
-                                          #   later without re-registering
+├── summary_report.html                  # Self-contained run report: per-set metrics
+│                                        #   plus before/after overlays. Start here.
+├── registration_qc.csv                  # Every slide's metrics, flat, all sets
+├── <set>/
+│   ├── registered/                      # Full-resolution warped slides, in the
+│   │   ├── HE.ome.tiff                  #   reference's coordinate frame. Input
+│   │   ├── IF_round1.ome.tiff           #   filenames are preserved.
+│   │   └── IF_round2.ome.tiff
+│   ├── overlaps/                        # Low-res QC thumbnails per stage
+│   ├── <set>_registration_error.csv     # Raw VALIS error: original / rigid /
+│   │                                    #   non-rigid D and rTRE
+│   ├── <set>_summary.json               # Machine-readable set summary
+│   ├── <set>_merged.ome.tiff            # Merged multi-channel stack (--merge)
+│   └── <set>_registrar.pickle           # Pickled registrar; re-apply transforms
+│                                        #   later without re-registering
+└── pipeline_info/                       # Nextflow execution report, timeline,
+                                         #   trace and DAG
 ```
+
+## Seqera Platform (Nextflow Tower)
+
+The repo ships everything Platform needs:
+
+- **`nextflow_schema.json`** — renders the launch form. `--input` appears as a file picker wired to
+  Data Explorer, registration options are grouped and documented, and tuning knobs are marked
+  hidden so the default form stays short.
+- **`assets/schema_input.json`** — the samplesheet contract (`set`, `image`), so a malformed sheet
+  is caught before compute is provisioned.
+- **`tower.yml`** — puts `summary_report.html`, `registration_qc.csv`, the per-set error CSVs and
+  the Nextflow execution report in the run's **Reports** tab.
+
+To add it: **Pipelines → Add pipeline**, point at this repository, and pick a compute environment.
+Use absolute cloud paths (`s3://...`) for `--input`, the images it references, and `--outdir`.
+
+For `--use_gpu true`, the compute environment must be able to allocate an NVIDIA GPU — the process
+requests `accelerator 1` and runs the `-cuda` image, which is `linux/amd64` only.
 
 ## Container images
 

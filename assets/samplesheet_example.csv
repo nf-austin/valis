@@ -1,0 +1,6 @@
+set,image
+case01,/data/case01/HE.svs
+case01,/data/case01/IF_round1.ome.tiff
+case01,/data/case01/IF_round2.ome.tiff
+case02,/data/case02/HE.svs
+case02,/data/case02/IF_round1.ome.tiff

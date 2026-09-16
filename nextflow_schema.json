@@ -1,0 +1,237 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/nf-austin/valis/main/nextflow_schema.json",
+  "title": "nf-austin/valis pipeline parameters",
+  "description": "Automated whole slide image registration with VALIS (rigid + non-rigid), producing aligned ome.tiff slides",
+  "type": "object",
+  "definitions": {
+    "input_output_options": {
+      "title": "Input/output options",
+      "type": "object",
+      "fa_icon": "fas fa-terminal",
+      "description": "Where the slides come from and where results go.",
+      "required": ["outdir"],
+      "properties": {
+        "input": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "schema": "assets/schema_input.json",
+          "mimetype": "text/csv",
+          "pattern": "^\\S+\\.(csv|tsv|txt)$",
+          "fa_icon": "fas fa-file-csv",
+          "description": "Samplesheet CSV listing the images to register.",
+          "help_text": "Columns: `set` (optional) and `image`. Rows sharing a `set` are registered together **in row order**, and the first row of each set is the reference every other image is warped onto. Sets run in parallel. Omit `set` to treat the whole sheet as one set. Use this rather than `--images` when launching from Seqera Platform."
+        },
+        "images": {
+          "type": "string",
+          "fa_icon": "fas fa-images",
+          "description": "Ad-hoc alternative to a samplesheet: comma-separated, ordered list of 2+ image paths.",
+          "help_text": "The first entry is the reference. Convenient on the command line; prefer `--input` on Seqera Platform, where a samplesheet gets a file browser. Mutually exclusive with `--input`."
+        },
+        "name": {
+          "type": "string",
+          "fa_icon": "fas fa-tag",
+          "description": "Name for the registration set. Defaults to the reference image's basename.",
+          "help_text": "Only used with `--images`, or as the fallback name for a samplesheet with no `set` column. Becomes the output subdirectory name."
+        },
+        "outdir": {
+          "type": "string",
+          "format": "directory-path",
+          "default": "results",
+          "fa_icon": "fas fa-folder-open",
+          "description": "Output directory. Use an absolute path when running on cloud storage."
+        }
+      }
+    },
+    "registration_options": {
+      "title": "Registration options",
+      "type": "object",
+      "fa_icon": "fas fa-layer-group",
+      "description": "How the slides are aligned.",
+      "properties": {
+        "crop": {
+          "type": "string",
+          "default": "reference",
+          "enum": ["reference", "overlap", "all"],
+          "fa_icon": "fas fa-crop",
+          "description": "Coordinate frame of the warped outputs.",
+          "help_text": "`reference` gives every output the reference image's dimensions, so they stack pixel-for-pixel onto it. `overlap` crops to the region all images share. `all` keeps the union extent, padding as needed."
+        },
+        "check_for_reflections": {
+          "type": "boolean",
+          "default": true,
+          "fa_icon": "fas fa-arrows-alt-h",
+          "description": "Detect and correct slides that are mirrored or flipped relative to the reference.",
+          "help_text": "Off in VALIS itself. Enabling it evaluates x-flip, y-flip and x+y-flip for each adjacent pair, roughly quadrupling the rigid-stage feature work; non-rigid registration and full-resolution warping are unaffected. Arbitrary rotation is handled regardless. Turn off only if you know every slide already shares an orientation."
+        },
+        "micro_reg": {
+          "type": "boolean",
+          "default": true,
+          "fa_icon": "fas fa-search-plus",
+          "description": "Run a second, higher-resolution non-rigid registration pass.",
+          "help_text": "More accurate, noticeably slower on large slides. Disable for a quicker first look."
+        },
+        "merge": {
+          "type": "boolean",
+          "default": true,
+          "fa_icon": "fas fa-object-group",
+          "description": "Also write one merged multi-channel OME-TIFF per set.",
+          "help_text": "Convenient for viewers such as QuPath. Large, and most meaningful when the slides carry distinct channels."
+        },
+        "imgs_ordered": {
+          "type": "boolean",
+          "default": false,
+          "fa_icon": "fas fa-sort-numeric-down",
+          "description": "Treat the input order as the z-stack order instead of letting VALIS sort by similarity.",
+          "help_text": "Useful for serial sections cut in a known order."
+        },
+        "create_masks": {
+          "type": "boolean",
+          "default": true,
+          "fa_icon": "fas fa-mask",
+          "description": "Let VALIS compute tissue and overlap masks.",
+          "help_text": "Set false if a run fails inside mask creation with a multi-Otsu thresholding error, which happens on low-contrast or near-uniform slides."
+        }
+      }
+    },
+    "performance_options": {
+      "title": "Performance and accuracy",
+      "type": "object",
+      "fa_icon": "fas fa-microchip",
+      "description": "Working resolutions and GPU acceleration.",
+      "properties": {
+        "use_gpu": {
+          "type": "boolean",
+          "default": false,
+          "fa_icon": "fas fa-bolt",
+          "description": "Use the CUDA container, request a GPU, and switch to a GPU-capable non-rigid registrar.",
+          "help_text": "Requires an executor that can allocate an NVIDIA GPU. VALIS only uses CUDA for feature detection and matching, which run on heavily downsampled images, so this also switches `non_rigid_registrar` to `RAFTWarper` — otherwise the GPU would accelerate thumbnail-sized work only."
+        },
+        "max_processed_image_dim_px": {
+          "type": "integer",
+          "default": 512,
+          "fa_icon": "fas fa-compress",
+          "description": "Working size for feature detection.",
+          "help_text": "Raise to 1024 if registration fails or finds too few feature matches. Costs time and memory."
+        },
+        "max_non_rigid_registration_dim_px": {
+          "type": "integer",
+          "default": 2048,
+          "fa_icon": "fas fa-expand",
+          "description": "Working size for non-rigid registration.",
+          "help_text": "Higher is more accurate and more memory-hungry. VALIS switches to an experimental tiled registrar once it estimates more than 10 GB of in-memory images."
+        },
+        "micro_max_dim_px": {
+          "type": "integer",
+          "default": 4096,
+          "fa_icon": "fas fa-expand-arrows-alt",
+          "description": "Working size for micro-registration. Must exceed the non-rigid size above.",
+          "help_text": "If it does not exceed `max_non_rigid_registration_dim_px`, VALIS silently skips micro-registration; the pipeline fails up front instead."
+        },
+        "non_rigid_registrar": {
+          "type": "string",
+          "default": "OpticalFlowWarper",
+          "fa_icon": "fas fa-wave-square",
+          "description": "Non-rigid registrar class from valis.non_rigid_registrars (CPU runs).",
+          "hidden": true
+        },
+        "non_rigid_registrar_gpu": {
+          "type": "string",
+          "default": "RAFTWarper",
+          "fa_icon": "fas fa-wave-square",
+          "description": "Non-rigid registrar used when --use_gpu is set. The only GPU-capable option.",
+          "hidden": true
+        },
+        "valis_compression": {
+          "type": "string",
+          "fa_icon": "fas fa-file-archive",
+          "description": "OME-TIFF compression codec override. VALIS defaults to DEFLATE.",
+          "hidden": true
+        }
+      }
+    },
+    "container_options": {
+      "title": "Container options",
+      "type": "object",
+      "fa_icon": "fas fa-cubes",
+      "description": "Which image the registration process runs in.",
+      "properties": {
+        "valis_container": {
+          "type": "string",
+          "fa_icon": "fas fa-box",
+          "description": "Pin a specific image, overriding the automatic CPU/GPU selection.",
+          "hidden": true
+        },
+        "valis_container_cpu": {
+          "type": "string",
+          "default": "ghcr.io/nf-austin/valis:0.1.0",
+          "fa_icon": "fas fa-box",
+          "description": "CPU image (multi-arch).",
+          "hidden": true
+        },
+        "valis_container_gpu": {
+          "type": "string",
+          "default": "ghcr.io/nf-austin/valis:0.1.0-cuda",
+          "fa_icon": "fas fa-box",
+          "description": "CUDA image (linux/amd64 only).",
+          "hidden": true
+        }
+      }
+    },
+    "max_job_request_options": {
+      "title": "Maximum job request options",
+      "type": "object",
+      "fa_icon": "fab fa-acquisitions-incorporated",
+      "description": "Caps applied to every process.",
+      "help_text": "Registration requests 16 CPUs by default. On a small machine lower `--max_cpus`, or the task cannot be submitted at all.",
+      "properties": {
+        "max_cpus": {
+          "type": "integer",
+          "default": 32,
+          "fa_icon": "fas fa-microchip",
+          "description": "Maximum CPUs for any single job.",
+          "hidden": true
+        },
+        "max_memory": {
+          "type": "string",
+          "default": "128.GB",
+          "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+          "fa_icon": "fas fa-memory",
+          "description": "Maximum memory for any single job.",
+          "hidden": true
+        },
+        "max_time": {
+          "type": "string",
+          "default": "72.h",
+          "pattern": "^(\\d+\\.?\\s*(s|m|h|d|day)\\s*)+$",
+          "fa_icon": "far fa-clock",
+          "description": "Maximum time for any single job.",
+          "hidden": true
+        }
+      }
+    },
+    "generic_options": {
+      "title": "Generic options",
+      "type": "object",
+      "fa_icon": "fas fa-file-import",
+      "description": "Rarely changed.",
+      "properties": {
+        "help": {
+          "type": "boolean",
+          "fa_icon": "fas fa-question-circle",
+          "description": "Print the help message and exit.",
+          "hidden": true
+        }
+      }
+    }
+  },
+  "allOf": [
+    { "$ref": "#/definitions/input_output_options" },
+    { "$ref": "#/definitions/registration_options" },
+    { "$ref": "#/definitions/performance_options" },
+    { "$ref": "#/definitions/container_options" },
+    { "$ref": "#/definitions/max_job_request_options" },
+    { "$ref": "#/definitions/generic_options" }
+  ]
+}
