@@ -25,4 +25,12 @@ process SUMMARY_REPORT {
         --out-html summary_report.html \\
         --out-csv registration_qc.csv
     """
+
+    // Keeps -stub-run from executing the real script, which would need the
+    // staged summaries to exist. Filenames must match the output: block above.
+    stub:
+    """
+    echo '<html><body><h1>stub</h1></body></html>' > summary_report.html
+    echo 'set_id,filename,original_D,rigid_D,non_rigid_D' > registration_qc.csv
+    """
 }

@@ -24,7 +24,8 @@ landmarks, and runs on CPU by default with an optional GPU path.
 ## Requirements
 
 - Nextflow >= 24.04.0
-- Docker or Singularity
+- Docker (local) or Singularity/Apptainer (HPC)
+- Optional: a SLURM cluster — see [HPC / SLURM](#hpc--slurm)
 
 `-profile conda` is **not** supported: `valis-wsi` is PyPI-only behind a JDK/libvips native stack, so
 `RUN_VALIS` resolves through a container image instead of an `environment.yml`.
@@ -115,6 +116,13 @@ Faster, more precise, or cheaper variants:
 | `--max_memory` | `128.GB` | Memory cap applied to all processes. |
 | `--max_cpus` | `32` | CPU cap applied to all processes. |
 | `--max_time` | `72.h` | Runtime cap applied to all processes. |
+| `--slurm_queue` | *(cluster default)* | SLURM partition (`sbatch --partition`). Used by `-profile slurm`. |
+| `--slurm_account` | *(none)* | SLURM account to charge (`sbatch --account`). |
+| `--cluster_options` | *(none)* | Raw sbatch options added to every job, e.g. `--qos=long`. |
+| `--gpu_cluster_options` | `--gres=gpu:1` | sbatch options used to request a GPU when `--use_gpu true`. SLURM ignores Nextflow's `accelerator` directive, so the request has to go through sbatch. |
+| `--singularity_cache_dir` | `$NXF_SINGULARITY_CACHEDIR` | Shared directory for pulled images. Put it on storage the compute nodes can read. |
+| `--conda_cache_dir` | `$NXF_CONDA_CACHEDIR` | Shared directory for conda environments. |
+| `--singularity_bind` | *(none)* | Extra bind mounts, comma-separated, e.g. `/mnt/gpfs,/scratch`. |
 
 ## Output structure
 
@@ -152,10 +160,49 @@ The repo ships everything Platform needs:
   the Nextflow execution report in the run's **Reports** tab.
 
 To add it: **Pipelines → Add pipeline**, point at this repository, and pick a compute environment.
-Use absolute cloud paths (`s3://...`) for `--input`, the images it references, and `--outdir`.
 
-For `--use_gpu true`, the compute environment must be able to allocate an NVIDIA GPU — the process
-requests `accelerator 1` and runs the `-cuda` image, which is `linux/amd64` only.
+Use **absolute paths** for `--input`, the images it references, and `--outdir`. On a SLURM compute
+environment those are ordinary shared-filesystem paths (`/mnt/gpfs/project/...`); on a cloud
+compute environment they are bucket URIs (`s3://...`). Relative paths inside a samplesheet are
+resolved against **the samplesheet's own directory** first, falling back to the launch directory —
+but on Platform the launch directory is the work directory, so relative paths are best avoided.
+
+For `--use_gpu true`, the compute environment must be able to allocate an NVIDIA GPU, and the
+`-cuda` image is `linux/amd64` only. Note that on SLURM the GPU is requested via
+`--gpu_cluster_options` (default `--gres=gpu:1`), because the SLURM executor ignores Nextflow's
+`accelerator` directive.
+
+## HPC / SLURM
+
+The `slurm` profile sets only the executor and queue, so it composes with an engine profile in
+either order:
+
+```bash
+nextflow run nf-austin/valis \
+    -profile slurm,singularity \
+    --slurm_queue normal \
+    --input /mnt/gpfs/project/sheet.csv \
+    --outdir /mnt/gpfs/project/results \
+    --singularity_cache_dir /mnt/gpfs/shared/singularity
+```
+
+Points that matter on a cluster:
+
+- **Use absolute paths** for `--input`, the images it lists, and `--outdir`. The data is expected to
+  live on the shared filesystem; nothing here assumes object storage.
+- **Put `--singularity_cache_dir` on shared storage.** `$HOME` is usually quota-limited and is not
+  always mounted on compute nodes, and the multi-GB VALIS image will blow through a small quota.
+  `NXF_SINGULARITY_CACHEDIR` is honored if you would rather set it site-wide.
+- **`--singularity_bind` is the escape hatch for symlinked filesystems.** `autoMounts` binds only
+  the paths Nextflow resolved itself; if `/data` is a symlink to `/mnt/gpfs/...`, the container sees
+  a dangling link and reports a missing file even though the host path is fine. Bind the real
+  parent: `--singularity_bind /mnt/gpfs`.
+- **GPU jobs need `--gres`, not `accelerator`.** The SLURM executor silently drops Nextflow's
+  `accelerator` directive, so `--use_gpu true` adds `--gpu_cluster_options` (default
+  `--gres=gpu:1`) to the sbatch options instead. Adjust it to match your site, e.g.
+  `--gpu_cluster_options '--gres=gpu:a100:1'`.
+- **Seqera Platform already sets the executor** when you launch against a SLURM compute
+  environment, so `-profile slurm` is mainly for launching by hand from a login node.
 
 ## Container images
 

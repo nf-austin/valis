@@ -41,7 +41,7 @@ def helpMessage() {
  * groupTuple(), because the reference is defined positionally -- it is the first
  * row of each set -- and groupTuple() gives no ordering guarantee.
  */
-def buildSets(rows, fallback_name) {
+def buildSets(rows, fallback_name, sheet_dir) {
     if (!rows) {
         error "Samplesheet is empty: ${params.input}"
     }
@@ -56,7 +56,7 @@ def buildSets(rows, fallback_name) {
             error "Samplesheet row ${idx + 1} has an empty 'image' value"
         }
         def key = row.set?.trim() ?: fallback_name
-        grouped.computeIfAbsent(key, { _k -> [] }).add(file(path, checkIfExists: true))
+        grouped.computeIfAbsent(key, { _k -> [] }).add(resolveInput(path, sheet_dir, idx + 1))
     }
 
     return grouped.collect { set_id, files ->
@@ -65,6 +65,32 @@ def buildSets(rows, fallback_name) {
         }
         tuple(sanitize(set_id), files.collect { f -> f.name }, files)
     }
+}
+
+/**
+ * Resolve one samplesheet entry to a file.
+ *
+ * A relative entry is resolved against the samplesheet's OWN directory first,
+ * which is what someone editing that sheet expects. Nextflow's default is the
+ * launch directory, and on Seqera Platform the launch directory is the work
+ * directory -- so a relative path there silently resolves somewhere unrelated.
+ * Falls back to launch-dir resolution so sheets that work today keep working,
+ * and only then reports the entry as missing.
+ */
+def resolveInput(path, sheet_dir, row_num) {
+    // Absolute POSIX path, or a remote URI (s3://, gs://, az://): take as-is.
+    if (path.startsWith('/') || path ==~ /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/.*/) {
+        return file(path, checkIfExists: true)
+    }
+    def beside_sheet = sheet_dir.resolve(path)
+    if (beside_sheet.exists()) {
+        return beside_sheet
+    }
+    def from_launch = file(path)
+    if (from_launch.exists()) {
+        return from_launch
+    }
+    error "Samplesheet row ${row_num}: image not found as '${beside_sheet}' (relative to the samplesheet) nor as '${from_launch}' (relative to the launch directory). Use an absolute path."
 }
 
 /** Output paths derive from this, so keep it filesystem-safe. */
@@ -96,7 +122,7 @@ workflow {
         // once the channel is consumed. A bad samplesheet should fail on launch.
         def sheet = file(params.input, checkIfExists: true)
         def rows = sheet.splitCsv(header: true, strip: true)
-        ch_input = channel.fromList(buildSets(rows, params.name ?: 'registration'))
+        ch_input = channel.fromList(buildSets(rows, params.name ?: 'registration', sheet.parent))
     }
     else {
         // Ad-hoc mode: one set, order taken from the comma-separated list.

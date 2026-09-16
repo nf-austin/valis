@@ -10,7 +10,9 @@
       "type": "object",
       "fa_icon": "fas fa-terminal",
       "description": "Where the slides come from and where results go.",
-      "required": ["outdir"],
+      "required": [
+        "outdir"
+      ],
       "properties": {
         "input": {
           "type": "string",
@@ -53,7 +55,11 @@
         "crop": {
           "type": "string",
           "default": "reference",
-          "enum": ["reference", "overlap", "all"],
+          "enum": [
+            "reference",
+            "overlap",
+            "all"
+          ],
           "fa_icon": "fas fa-crop",
           "description": "Coordinate frame of the warped outputs.",
           "help_text": "`reference` gives every output the reference image's dimensions, so they stack pixel-for-pixel onto it. `overlap` crops to the region all images share. `all` keeps the union extent, padding as needed."
@@ -106,7 +112,7 @@
           "default": false,
           "fa_icon": "fas fa-bolt",
           "description": "Use the CUDA container, request a GPU, and switch to a GPU-capable non-rigid registrar.",
-          "help_text": "Requires an executor that can allocate an NVIDIA GPU. VALIS only uses CUDA for feature detection and matching, which run on heavily downsampled images, so this also switches `non_rigid_registrar` to `RAFTWarper` — otherwise the GPU would accelerate thumbnail-sized work only."
+          "help_text": "Requires an executor that can allocate an NVIDIA GPU. VALIS only uses CUDA for feature detection and matching, which run on heavily downsampled images, so this also switches `non_rigid_registrar` to `RAFTWarper` \u2014 otherwise the GPU would accelerate thumbnail-sized work only."
         },
         "max_processed_image_dim_px": {
           "type": "integer",
@@ -179,6 +185,61 @@
         }
       }
     },
+    "execution_options": {
+      "title": "Execution environment",
+      "type": "object",
+      "fa_icon": "fas fa-server",
+      "description": "Cluster scheduler, image caches and bind mounts. Relevant when running on HPC.",
+      "help_text": "Use the `slurm` profile together with an engine profile: `-profile slurm,singularity`. On Seqera Platform a SLURM compute environment already sets the executor, so you normally only need the cache and bind settings here.",
+      "properties": {
+        "slurm_queue": {
+          "type": "string",
+          "fa_icon": "fas fa-stream",
+          "description": "SLURM partition to submit to (sbatch --partition).",
+          "help_text": "Only used with `-profile slurm`. Left unset, no --partition flag is emitted and the cluster default applies."
+        },
+        "slurm_account": {
+          "type": "string",
+          "fa_icon": "fas fa-id-card",
+          "description": "SLURM account to charge (sbatch --account).",
+          "hidden": true
+        },
+        "cluster_options": {
+          "type": "string",
+          "fa_icon": "fas fa-sliders-h",
+          "description": "Raw sbatch options appended to every job, e.g. '--qos=long'.",
+          "hidden": true
+        },
+        "gpu_cluster_options": {
+          "type": "string",
+          "default": "--gres=gpu:1",
+          "fa_icon": "fas fa-bolt",
+          "description": "sbatch options used to request a GPU when --use_gpu is set.",
+          "help_text": "SLURM ignores Nextflow's `accelerator` directive, so on that executor the GPU must be requested through sbatch options. Adjust to match your site, e.g. '--gres=gpu:a100:1'.",
+          "hidden": true
+        },
+        "singularity_cache_dir": {
+          "type": "string",
+          "format": "directory-path",
+          "fa_icon": "fas fa-hdd",
+          "description": "Shared directory for pulled Singularity images.",
+          "help_text": "Put this on shared storage the compute nodes can read. $HOME is quota-limited and is not always mounted on compute nodes. Defaults to NXF_SINGULARITY_CACHEDIR, then Nextflow's own $NXF_HOME location."
+        },
+        "conda_cache_dir": {
+          "type": "string",
+          "format": "directory-path",
+          "fa_icon": "fas fa-hdd",
+          "description": "Shared directory for created conda environments.",
+          "hidden": true
+        },
+        "singularity_bind": {
+          "type": "string",
+          "fa_icon": "fas fa-link",
+          "description": "Extra paths to bind into the container, comma-separated, e.g. '/mnt/gpfs,/scratch'.",
+          "help_text": "autoMounts only binds paths Nextflow itself resolved. HPC filesystems are routinely symlinked (/data -> /mnt/gpfs/...), which shows up as 'file not found' inside the container even though the host path exists. Bind the real parent here."
+        }
+      }
+    },
     "max_job_request_options": {
       "title": "Maximum job request options",
       "type": "object",
@@ -227,11 +288,26 @@
     }
   },
   "allOf": [
-    { "$ref": "#/definitions/input_output_options" },
-    { "$ref": "#/definitions/registration_options" },
-    { "$ref": "#/definitions/performance_options" },
-    { "$ref": "#/definitions/container_options" },
-    { "$ref": "#/definitions/max_job_request_options" },
-    { "$ref": "#/definitions/generic_options" }
+    {
+      "$ref": "#/definitions/input_output_options"
+    },
+    {
+      "$ref": "#/definitions/registration_options"
+    },
+    {
+      "$ref": "#/definitions/performance_options"
+    },
+    {
+      "$ref": "#/definitions/container_options"
+    },
+    {
+      "$ref": "#/definitions/execution_options"
+    },
+    {
+      "$ref": "#/definitions/max_job_request_options"
+    },
+    {
+      "$ref": "#/definitions/generic_options"
+    }
   ]
 }
