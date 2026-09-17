@@ -16,7 +16,6 @@ process RUN_VALIS {
     // that share a basename cannot collide. Order comes from `names`, which
     // run_valis.py asserts against the staged files.
     tuple val(set_id), val(names), path(images, stageAs: '?/*')
-    path run_script
 
     output:
     tuple val(set_id), path("registered/*"),                            emit: registered
@@ -30,6 +29,9 @@ process RUN_VALIS {
     tuple val(set_id), path("${set_id}_registrar.pickle"),              emit: registrar, optional: true
 
     script:
+    // Scripts live in bin/ and are called bare: Nextflow prepends
+    // $projectDir/bin to PATH and bind-mounts it into the container, so this
+    // works under docker, singularity and conda alike.
     def img_args  = (images instanceof List ? images : [images]).collect { f -> "'${f}'" }.join(' ')
     def name_args = (names  instanceof List ? names  : [names] ).collect { n -> "'${n}'" }.join(' ')
     def compression_arg = params.valis_compression ? "--compression '${params.valis_compression}'" : ''
@@ -49,7 +51,7 @@ process RUN_VALIS {
     export VIPS_CONCURRENCY=${task.cpus}
     ${gpu_env}
 
-    python3 ${run_script} \\
+    run_valis.py \\
         --images ${img_args} \\
         --names ${name_args} \\
         --set-id '${set_id}' \\

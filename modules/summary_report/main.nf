@@ -9,15 +9,17 @@ process SUMMARY_REPORT {
     input:
     path summaries, stageAs: 'summaries/*'
     path overlaps,  stageAs: 'overlaps/*'
-    path run_script
 
     output:
     path "summary_report.html",   emit: report
     path "registration_qc.csv",   emit: metrics
 
     script:
+    // Scripts live in bin/ and are called bare: Nextflow prepends
+    // $projectDir/bin to PATH and bind-mounts it into the container, so this
+    // works under docker, singularity and conda alike.
     """
-    python3 ${run_script} \\
+    summary_report.py \\
         --summaries summaries \\
         --overlaps overlaps \\
         --run-name '${workflow.runName}' \\

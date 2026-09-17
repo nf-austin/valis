@@ -146,15 +146,11 @@ workflow {
     outdir       : ${params.outdir}
     """.stripIndent()
 
-    RUN_VALIS(
-        ch_input,
-        channel.value(file("${projectDir}/modules/run_valis/run_valis.py"))
-    )
+    RUN_VALIS(ch_input)
 
     // One report per run, so a batch of sets summarises in a single document.
     SUMMARY_REPORT(
         RUN_VALIS.out.summary.map { _id, json -> json }.collect(),
-        RUN_VALIS.out.qc.map { _id, dir -> dir }.collect(),
-        channel.value(file("${projectDir}/modules/summary_report/summary_report.py"))
+        RUN_VALIS.out.qc.map { _id, dir -> dir }.collect()
     )
 }
