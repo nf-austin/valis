@@ -38,8 +38,15 @@ process RUN_VALIS {
     // VALIS resolves the device at import time, so CPU has to be forced through
     // the environment rather than a constructor argument.
     def gpu_env = params.use_gpu ? '' : 'export CUDA_VISIBLE_DEVICES=""'
+    // numba JIT-caches next to its package by default, and matplotlib wants
+    // ~/.config. Neither is writable inside a read-only Singularity image or
+    // with a read-only $HOME, which makes the import die with "cannot cache
+    // function ... no locator available". Point both at the task work dir,
+    // which is always writable.
     """
     set -euo pipefail
+    export NUMBA_CACHE_DIR="\$PWD/.numba_cache"
+    export MPLCONFIGDIR="\$PWD/.mplconfig"
 
     # VALIS exposes no thread parameter -- pqdm is hardcoded to all-cores-minus-one
     # and nothing sets the BLAS or libvips limits. Left alone, those multiply on a
